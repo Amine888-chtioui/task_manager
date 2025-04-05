@@ -1,0 +1,119 @@
+/* Reset des styles de base */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Arial, sans-serif;
+}
+
+/* Style du body */
+body {
+    background-color: #f8f9fa;
+    color: #333;
+    text-align: center;
+    padding: 20px;
+}
+
+/* Lien vers la page d'accueil */
+a[href="admin_page.php"],
+a[href="user_page.php"] {
+    display: inline-block;
+    margin-bottom: 15px;
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border-radius: 5px;
+    text-decoration: none;
+    font-weight: bold;
+    transition: background 0.3s ease;
+}
+
+a[href="admin_page.php"]:hover,
+a[href="user_page.php"]:hover {
+    background-color: #0056b3;
+}
+
+/* Conteneur principal */
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Table des tâches */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+th {
+    background-color: #343a40;
+    color: white;
+}
+
+/* Style des liens d'action */
+td a {
+    display: inline-block;
+    padding: 5px 10px;
+    margin: 2px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 14px;
+}
+
+td a[href*="delete-task"] {
+    background-color: #dc3545;
+    color: white;
+}
+
+td a[href*="delete-task"]:hover {
+    background-color: #c82333;
+}
+
+/* Bouton "Annuler" */
+td a[href*="pending"] button {
+    background-color: #ffc107;
+    color: black;
+    border: none;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 14px;
+    border-radius: 5px;
+    transition: background 0.3s ease;
+}
+
+td a[href*="pending"] button:hover {
+    background-color: #e0a800;
+}
+
+/* Ligne "Aucune donnée trouvée" */
+td[colspan] {
+    text-align: center;
+    font-weight: bold;
+    color: red;
+}
+
+/* Responsive */
+@media screen and (max-width: 768px) {
+    .container {
+        width: 90%;
+    }
+
+    table {
+        font-size: 14px;
+    }
+
+    th, td {
+        padding: 10px;
+    }
+}
