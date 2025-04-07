@@ -1,7 +1,7 @@
 <?php
     require_once 'config.php';
     if (!isset($_SESSION['user_id'])) {
-        header("Location: login.php"); // توجيه المستخدم إلى صفحة تسجيل الدخول
+        header("Location: login.php"); 
         exit();
     }
     if(isset($_GET['task_id'])){
