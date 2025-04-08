@@ -671,12 +671,6 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a href="#">
-                            <i class="fas fa-list-check"></i>
-                            All Tasks
-                        </a>
-                    </li>
-                    <li class="nav-item">
                         <a href="done.php">
                             <i class="fas fa-check-circle"></i>
                             Completed Tasks
@@ -689,7 +683,7 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="manage-users.php">
                             <i class="fas fa-users"></i>
                             Manage Users
                         </a>
@@ -697,7 +691,7 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
                     
                     <div class="nav-section-title">SETTINGS</div>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="profile.php">
                             <i class="fas fa-user-gear"></i>
                             Profile Settings
                         </a>

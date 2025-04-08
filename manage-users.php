@@ -1,77 +1,72 @@
 <?php
 require_once('config.php');
 
-// Check session exists
-if (!isset($_SESSION['session_token'])) {
+// Check if user is admin
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     header("Location: login.php");
-    exit();
-}
-
-// Check user is logged in
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
-    exit();
-}
-
-// Check user role
-if ($_SESSION['role'] !== 'user') {
-    echo "You do not have permission to access this page.";
     exit();
 }
 
 $user_id = $_SESSION['user_id'];
 
-// Get user name from database
+// Get admin name from database
 $stmt = $conn->prepare("SELECT name FROM users WHERE id = ?");
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
 $user = $result->fetch_assoc();
-$username = $user['name'] ?? 'User';
+$username = $user['name'] ?? 'Admin';
 
-// Priority filter handling
-$priority_filter = isset($_GET['priority']) ? $_GET['priority'] : '';
+// Handle user deletion
+if(isset($_GET['delete_id'])) {
+    $delete_id = $_GET['delete_id'];
+    
+    // Prevent admin from deleting their own account
+    if($delete_id == $user_id) {
+        $_SESSION['user_error'] = "You cannot delete your own admin account.";
+    } else {
+        $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
+        $stmt->bind_param("i", $delete_id);
+        
+        if($stmt->execute()) {
+            // Also delete user's tasks and lists
+            $conn->query("DELETE FROM tbl_tasks WHERE user_id = $delete_id");
+            $conn->query("DELETE FROM tbl_lists WHERE user_id = $delete_id");
+            
+            $_SESSION['user_success'] = "User deleted successfully";
+        } else {
+            $_SESSION['user_error'] = "Error deleting user";
+        }
+    }
+    
+    header("Location: manage-users.php");
+    exit();
+}
 
-// Count statistics
+// User role filter
+$role_filter = isset($_GET['role']) ? $_GET['role'] : '';
+
+// Get total user counts
 $stats = [
     'total' => 0,
-    'pending' => 0,
-    'completed' => 0,
-    'overdue' => 0
+    'admin' => 0,
+    'user' => 0
 ];
 
-// Get total tasks
-$query = "SELECT COUNT(*) as total FROM tbl_tasks WHERE (user_id = ? OR user_id IS NULL)";
-$stmt = $conn->prepare($query);
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$result = $stmt->get_result();
+// Get total users
+$query = "SELECT COUNT(*) as total FROM users";
+$result = $conn->query($query);
 $stats['total'] = $result->fetch_assoc()['total'];
 
-// Get pending tasks
-$query = "SELECT COUNT(*) as pending FROM tbl_tasks WHERE (user_id = ? OR user_id IS NULL) AND status = 'pending'";
-$stmt = $conn->prepare($query);
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$result = $stmt->get_result();
-$stats['pending'] = $result->fetch_assoc()['pending'];
+// Get admin count
+$query = "SELECT COUNT(*) as admin_count FROM users WHERE role='admin'";
+$result = $conn->query($query);
+$stats['admin'] = $result->fetch_assoc()['admin_count'];
 
-// Get completed tasks
-$query = "SELECT COUNT(*) as completed FROM tbl_tasks WHERE (user_id = ? OR user_id IS NULL) AND status = 'complited'";
-$stmt = $conn->prepare($query);
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$result = $stmt->get_result();
-$stats['completed'] = $result->fetch_assoc()['completed'];
-
-// Get overdue tasks
-$today = date('Y-m-d');
-$query = "SELECT COUNT(*) as overdue FROM tbl_tasks WHERE (user_id = ? OR user_id IS NULL) AND status = 'pending' AND deadline < ?";
-$stmt = $conn->prepare($query);
-$stmt->bind_param("is", $user_id, $today);
-$stmt->execute();
-$result = $stmt->get_result();
-$stats['overdue'] = $result->fetch_assoc()['overdue'];
+// Get regular user count
+$query = "SELECT COUNT(*) as user_count FROM users WHERE role='user'";
+$result = $conn->query($query);
+$stats['user'] = $result->fetch_assoc()['user_count'];
 ?>
 
 <!DOCTYPE html>
@@ -79,16 +74,16 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard | Task Manager</title>
+    <title>Manage Users | Task Manager</title>
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts - Poppins -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-          --primary: #5468FF;
-          --primary-dark: #4054EB;
-          --primary-light: #E6E9FF;
+          --primary: #8C36D4;
+          --primary-dark: #7929C4;
+          --primary-light: #F0E5FA;
           --success: #34C759;
           --danger: #FF3B30;
           --warning: #FFCC00;
@@ -272,6 +267,13 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           font-weight: 600;
           margin-bottom: 1.5rem;
           color: var(--dark);
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .page-title i {
+          color: var(--primary);
         }
 
         /* Alert message styling */
@@ -334,24 +336,19 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           font-size: 1.25rem;
         }
 
-        .total-tasks .stat-icon {
+        .total-users .stat-icon {
           background-color: var(--primary-light);
           color: var(--primary);
         }
 
-        .pending-tasks .stat-icon {
-          background-color: rgba(255, 204, 0, 0.1);
-          color: var(--warning);
-        }
-
-        .completed-tasks .stat-icon {
-          background-color: rgba(52, 199, 89, 0.1);
-          color: var(--success);
-        }
-
-        .overdue-tasks .stat-icon {
+        .admin-users .stat-icon {
           background-color: rgba(255, 59, 48, 0.1);
           color: var(--danger);
+        }
+
+        .regular-users .stat-icon {
+          background-color: rgba(52, 199, 89, 0.1);
+          color: var(--success);
         }
 
         .stat-value {
@@ -366,8 +363,8 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           color: var(--gray-600);
         }
 
-        /* === TASKS SECTION === */
-        .tasks-container {
+        /* === USERS SECTION === */
+        .users-container {
           background-color: white;
           border-radius: var(--radius);
           box-shadow: var(--shadow);
@@ -375,7 +372,7 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           margin-bottom: 2rem;
         }
 
-        .tasks-header {
+        .users-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -383,7 +380,7 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           border-bottom: 1px solid var(--gray-200);
         }
 
-        .tasks-title {
+        .users-title {
           display: flex;
           align-items: center;
           gap: 0.5rem;
@@ -392,11 +389,11 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           color: var(--dark);
         }
 
-        .tasks-title i {
+        .users-title i {
           color: var(--primary);
         }
 
-        .tasks-actions {
+        .users-actions {
           display: flex;
           gap: 1rem;
           align-items: center;
@@ -479,13 +476,13 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           font-size: 0.85rem;
         }
 
-        /* === TASKS TABLE === */
-        .task-table {
+        /* === USERS TABLE === */
+        .user-table {
           width: 100%;
           border-collapse: collapse;
         }
 
-        .task-table th {
+        .user-table th {
           text-align: left;
           padding: 1rem 1.5rem;
           font-weight: 600;
@@ -494,29 +491,42 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           border-bottom: 1px solid var(--gray-200);
         }
 
-        .task-table td {
+        .user-table td {
           padding: 1rem 1.5rem;
           border-bottom: 1px solid var(--gray-200);
         }
 
-        .task-table tr:last-child td {
+        .user-table tr:last-child td {
           border-bottom: none;
         }
 
-        .task-name {
+        .user-name {
           font-weight: 500;
           color: var(--gray-800);
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
         }
 
-        .task-description {
+        .user-avatar-small {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background-color: var(--primary-light);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+          text-transform: uppercase;
+          color: var(--primary);
+          font-size: 0.85rem;
+        }
+
+        .user-email {
           color: var(--gray-600);
-          max-width: 250px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
         }
 
-        .priority-badge {
+        .role-badge {
           display: inline-block;
           padding: 0.2rem 0.5rem;
           border-radius: 999px;
@@ -525,30 +535,14 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
           text-transform: uppercase;
         }
 
-        .priority-high {
+        .role-admin {
           background-color: rgba(255, 59, 48, 0.1);
           color: var(--danger);
         }
 
-        .priority-medium {
-          background-color: rgba(255, 204, 0, 0.1);
-          color: var(--warning);
-        }
-
-        .priority-low {
+        .role-user {
           background-color: rgba(52, 199, 89, 0.1);
           color: var(--success);
-        }
-
-        .deadline {
-          white-space: nowrap;
-          color: var(--gray-700);
-          font-size: 0.9rem;
-        }
-
-        .deadline i {
-          margin-right: 0.25rem;
-          color: var(--gray-500);
         }
 
         .action-buttons {
@@ -590,13 +584,13 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
           }
           
-          .tasks-header {
+          .users-header {
             flex-direction: column;
             align-items: flex-start;
             gap: 1rem;
           }
           
-          .tasks-actions {
+          .users-actions {
             width: 100%;
             flex-wrap: wrap;
           }
@@ -637,8 +631,8 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
             width: 100%;
           }
           
-          .task-table th:nth-child(3),
-          .task-table td:nth-child(3) {
+          .user-table th:nth-child(3),
+          .user-table td:nth-child(3) {
             display: none;
           }
         }
@@ -655,7 +649,7 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
             <div class="user-avatar"><?php echo substr($username, 0, 1); ?></div>
             <div class="user-info">
                 <div class="user-name"><?php echo $username; ?></div>
-                <div class="user-role">User</div>
+                <div class="user-role">Admin</div>
             </div>
         </div>
     </header>
@@ -667,7 +661,7 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
             <nav>
                 <ul class="nav-menu">
                     <li class="nav-item">
-                        <a href="user_page.php" class="active">
+                        <a href="admin_page.php">
                             <i class="fas fa-home"></i>
                             Dashboard
                         </a>
@@ -682,6 +676,12 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
                         <a href="manage-list.php">
                             <i class="fas fa-folder"></i>
                             Manage Lists
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="manage-users.php" class="active">
+                            <i class="fas fa-users"></i>
+                            Manage Users
                         </a>
                     </li>
                     
@@ -704,108 +704,93 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
 
         <!-- Main Content Area -->
         <main class="main-content">
-            <h1 class="page-title">Dashboard</h1>
+            <h1 class="page-title">
+                <i class="fas fa-users"></i>
+                Manage Users
+            </h1>
             
             <?php
-            if(isset($_SESSION['insert_tasks'])){
-                echo '<div class="alert alert-success">' . $_SESSION['insert_tasks'] . '</div>';
-                unset($_SESSION['insert_tasks']);
+            if(isset($_SESSION['user_success'])){
+                echo '<div class="alert alert-success">' . $_SESSION['user_success'] . '</div>';
+                unset($_SESSION['user_success']);
             }
             
-            if(isset($_SESSION['delete_task'])){
-                echo '<div class="alert alert-success">' . $_SESSION['delete_task'] . '</div>';
-                unset($_SESSION['delete_task']);
-            }
-            
-            if(isset($_SESSION['insert_tasks_error'])){
-                echo '<div class="alert alert-danger">' . $_SESSION['insert_tasks_error'] . '</div>';
-                unset($_SESSION['insert_tasks_error']);
+            if(isset($_SESSION['user_error'])){
+                echo '<div class="alert alert-danger">' . $_SESSION['user_error'] . '</div>';
+                unset($_SESSION['user_error']);
             }
             ?>
             
             <!-- Stats Cards -->
             <div class="stats-grid">
-                <div class="stat-card total-tasks">
+                <div class="stat-card total-users">
                     <div class="stat-header">
-                        <div class="stat-title">Total Tasks</div>
+                        <div class="stat-title">Total Users</div>
                         <div class="stat-icon">
-                            <i class="fas fa-clipboard-list"></i>
+                            <i class="fas fa-users"></i>
                         </div>
                     </div>
                     <div class="stat-value"><?php echo $stats['total']; ?></div>
-                    <div class="stat-desc">All assigned tasks</div>
+                    <div class="stat-desc">All system users</div>
                 </div>
                 
-                <div class="stat-card pending-tasks">
+                <div class="stat-card admin-users">
                     <div class="stat-header">
-                        <div class="stat-title">Pending</div>
+                        <div class="stat-title">Administrators</div>
                         <div class="stat-icon">
-                            <i class="fas fa-clock"></i>
+                            <i class="fas fa-user-shield"></i>
                         </div>
                     </div>
-                    <div class="stat-value"><?php echo $stats['pending']; ?></div>
-                    <div class="stat-desc">Tasks in progress</div>
+                    <div class="stat-value"><?php echo $stats['admin']; ?></div>
+                    <div class="stat-desc">Admin accounts</div>
                 </div>
                 
-                <div class="stat-card completed-tasks">
+                <div class="stat-card regular-users">
                     <div class="stat-header">
-                        <div class="stat-title">Completed</div>
+                        <div class="stat-title">Regular Users</div>
                         <div class="stat-icon">
-                            <i class="fas fa-check-double"></i>
+                            <i class="fas fa-user"></i>
                         </div>
                     </div>
-                    <div class="stat-value"><?php echo $stats['completed']; ?></div>
-                    <div class="stat-desc">Finished tasks</div>
-                </div>
-                
-                <div class="stat-card overdue-tasks">
-                    <div class="stat-header">
-                        <div class="stat-title">Overdue</div>
-                        <div class="stat-icon">
-                            <i class="fas fa-exclamation-circle"></i>
-                        </div>
-                    </div>
-                    <div class="stat-value"><?php echo $stats['overdue']; ?></div>
-                    <div class="stat-desc">Tasks past deadline</div>
+                    <div class="stat-value"><?php echo $stats['user']; ?></div>
+                    <div class="stat-desc">Standard accounts</div>
                 </div>
             </div>
             
-            <!-- Tasks Section -->
-            <div class="tasks-container">
-                <div class="tasks-header">
-                    <div class="tasks-title">
-                        <i class="fas fa-list-check"></i>
-                        My Tasks
+            <!-- Users Section -->
+            <div class="users-container">
+                <div class="users-header">
+                    <div class="users-title">
+                        <i class="fas fa-user-group"></i>
+                        All Users
                     </div>
                     
-                    <div class="tasks-actions">
+                    <div class="users-actions">
                         <form method="GET" action="" class="filter-form">
-                            <label for="priority">Filter by:</label>
-                            <select name="priority" id="priority" class="filter-dropdown" onchange="this.form.submit()">
-                                <option value="" <?php echo $priority_filter == '' ? 'selected' : ''; ?>>All Priorities</option>
-                                <option value="High" <?php echo $priority_filter == 'High' ? 'selected' : ''; ?>>High</option>
-                                <option value="Medium" <?php echo $priority_filter == 'Medium' ? 'selected' : ''; ?>>Medium</option>
-                                <option value="Low" <?php echo $priority_filter == 'Low' ? 'selected' : ''; ?>>Low</option>
+                            <label for="role">Filter by:</label>
+                            <select name="role" id="role" class="filter-dropdown" onchange="this.form.submit()">
+                                <option value="" <?php echo $role_filter == '' ? 'selected' : ''; ?>>All Roles</option>
+                                <option value="admin" <?php echo $role_filter == 'admin' ? 'selected' : ''; ?>>Administrators</option>
+                                <option value="user" <?php echo $role_filter == 'user' ? 'selected' : ''; ?>>Regular Users</option>
                             </select>
                         </form>
                         
-                        <a href="add-task.php" class="btn btn-primary">
-                            <i class="fas fa-plus"></i>
-                            Add New Task
+                        <a href="add-user.php" class="btn btn-primary">
+                            <i class="fas fa-user-plus"></i>
+                            Add New User
                         </a>
                     </div>
                 </div>
                 
                 <?php
-                // Modify query based on priority filter
-                if (!empty($priority_filter)) {
-                    $query = "SELECT * FROM tbl_tasks WHERE (user_id = ? OR user_id IS NULL) AND status='pending' AND priority=?";
+                // Modify query based on role filter
+                if (!empty($role_filter)) {
+                    $query = "SELECT * FROM users WHERE role = ?";
                     $stmt = $conn->prepare($query);
-                    $stmt->bind_param("is", $user_id, $priority_filter);
+                    $stmt->bind_param("s", $role_filter);
                 } else {
-                    $query = "SELECT * FROM tbl_tasks WHERE (user_id = ? OR user_id IS NULL) AND status='pending'";
+                    $query = "SELECT * FROM users";
                     $stmt = $conn->prepare($query);
-                    $stmt->bind_param("i", $user_id);
                 }
                 
                 $stmt->execute();
@@ -813,75 +798,61 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
                 
                 if($result->num_rows > 0) {
                 ?>
-                <table class="task-table">
+                <table class="user-table">
                     <thead>
                         <tr>
                             <th>#</th>
-                            <th>Task Name</th>
-                            <th>Description</th>
-                            <th>Priority</th>
-                            <th>Deadline</th>
+                            <th>User</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Tasks</th>
                             <th>Actions</th>
-                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php
                         $i = 1;
                         while($row = $result->fetch_assoc()) {
-                            $task_id = $row['task_id'];
-                            $task_name = $row['task_name'];
-                            $task_description = $row['task_description'];
-                            $priority = $row['priority'];
-                            $deadline = $row['deadline'];
+                            $id = $row['id'];
+                            $name = $row['name'];
+                            $email = $row['email'];
+                            $role = $row['role'];
                             
-                            // Determine priority class
-                            $priority_class = '';
-                            switch($priority) {
-                                case 'High': 
-                                    $priority_class = 'priority-high'; 
-                                    break;
-                                case 'Medium': 
-                                    $priority_class = 'priority-medium'; 
-                                    break;
-                                case 'Low': 
-                                    $priority_class = 'priority-low'; 
-                                    break;
-                            }
+                            // Get user's task count
+                            $task_query = "SELECT COUNT(*) as task_count FROM tbl_tasks WHERE user_id = $id";
+                            $task_result = $conn->query($task_query);
+                            $task_count = $task_result->fetch_assoc()['task_count'];
                             
-                            // Format date
-                            $formatted_date = date('M d, Y', strtotime($deadline));
-                            
-                            // Check if task is overdue
-                            $is_overdue = (strtotime($deadline) < strtotime(date('Y-m-d')));
-                            $date_class = $is_overdue ? 'text-danger' : '';
+                            // Determine if current user is self
+                            $is_current_user = ($id == $user_id);
                         ?>
                         <tr>
                             <td><?php echo $i++; ?></td>
-                            <td class="task-name"><?php echo $task_name; ?></td>
-                            <td class="task-description"><?php echo $task_description; ?></td>
                             <td>
-                                <span class="priority-badge <?php echo $priority_class; ?>">
-                                    <?php echo $priority; ?>
-                                </span>
-                            </td>
-                            <td class="deadline <?php echo $date_class; ?>">
-                                <i class="far fa-calendar-alt"></i> <?php echo $formatted_date; ?>
-                            </td>
-                            <td>
-                                <div class="action-buttons">
-                                    <a href="update-task.php?task_id=<?php echo $task_id; ?>" class="btn btn-sm btn-outline">
-                                        <i class="fas fa-edit"></i>
-                                    </a>
-                                    <a href="delete-task.php?task_id=<?php echo $task_id; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this task?');">
-                                        <i class="fas fa-trash"></i>
-                                    </a>
+                                <div class="user-name">
+                                    <div class="user-avatar-small"><?php echo substr($name, 0, 1); ?></div>
+                                    <?php echo $name; ?>
+                                    <?php if($is_current_user): ?><small>(You)</small><?php endif; ?>
                                 </div>
                             </td>
+                            <td class="user-email"><?php echo $email; ?></td>
                             <td>
-                                <a href="complited.php?task_id=<?php echo $task_id; ?>" class="btn btn-sm btn-success">
-                                    <i class="fas fa-check"></i> Complete
-                                </a>
+                                <span class="role-badge role-<?php echo $role; ?>">
+                                    <?php echo ucfirst($role); ?>
+                                </span>
+                            </td>
+                            <td><?php echo $task_count; ?> tasks</td>
+                            <td>
+                                <div class="action-buttons">
+                                    <a href="edit-user.php?id=<?php echo $id; ?>" class="btn btn-sm btn-outline">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <?php if(!$is_current_user): ?>
+                                    <a href="manage-users.php?delete_id=<?php echo $id; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this user? All their tasks and lists will also be deleted.');">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                         <?php
@@ -893,11 +864,11 @@ $stats['overdue'] = $result->fetch_assoc()['overdue'];
                 } else {
                 ?>
                 <div class="empty-state">
-                    <i class="fas fa-clipboard-check empty-icon"></i>
-                    <p class="empty-text">No tasks found</p>
-                    <a href="add-task.php" class="btn btn-primary">
-                        <i class="fas fa-plus"></i>
-                        Add Your First Task
+                    <i class="fas fa-users-slash empty-icon"></i>
+                    <p class="empty-text">No users found</p>
+                    <a href="add-user.php" class="btn btn-primary">
+                        <i class="fas fa-user-plus"></i>
+                        Add New User
                     </a>
                 </div>
                 <?php

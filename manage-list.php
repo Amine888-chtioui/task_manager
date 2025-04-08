@@ -441,13 +441,6 @@ $username = $user['name'] ?? 'User';
                         </a>
                     </li>
                     <?php endif; ?>
-                    
-                    <li class="nav-item">
-                        <a href="#">
-                            <i class="fas fa-list-check"></i>
-                            My Tasks
-                        </a>
-                    </li>
                     <li class="nav-item">
                         <a href="done.php">
                             <i class="fas fa-check-circle"></i>
@@ -460,14 +453,20 @@ $username = $user['name'] ?? 'User';
                             Manage Lists
                         </a>
                     </li>
-                    
+                    <li class="nav-item">
+                        <a href="manage-users.php">
+                            <i class="fas fa-users"></i>
+                            Manage Users
+                        </a>
+                    </li>
                     <div class="nav-section-title">SETTINGS</div>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="profile.php">
                             <i class="fas fa-user-gear"></i>
                             Profile Settings
                         </a>
                     </li>
+                    
                     <li class="nav-item">
                         <a href="logout.php">
                             <i class="fas fa-sign-out-alt"></i>

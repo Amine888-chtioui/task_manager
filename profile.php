@@ -1,6 +1,7 @@
 <?php
-require_once 'config.php';
+require_once('config.php');
 
+// Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
@@ -9,70 +10,92 @@ if (!isset($_SESSION['user_id'])) {
 $user_id = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
-// Get user name from database
-$stmt = $conn->prepare("SELECT name FROM users WHERE id = ?");
+// Get user details from database
+$stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
 $user = $result->fetch_assoc();
-$username = $user['name'] ?? ($role === 'admin' ? 'Admin' : 'User');
-
-// Check for task_id in URL
-if(!isset($_GET['task_id'])){
-    header("Location: " . ($role == 'admin' ? 'admin_page.php' : 'user_page.php'));
-    exit();
-}
-
-$task_id = $_GET['task_id'];
-
-// Get task details
-if($role == 'admin') {
-    $stmt = $conn->prepare("SELECT * FROM tbl_tasks WHERE task_id = ?");
-    $stmt->bind_param("i", $task_id);
-} else {
-    $stmt = $conn->prepare("SELECT * FROM tbl_tasks WHERE task_id = ? AND (user_id = ? OR user_id IS NULL)");
-    $stmt->bind_param("ii", $task_id, $user_id);
-}
-
-$stmt->execute();
-$result = $stmt->get_result();
-
-if($result->num_rows == 0) {
-    header("Location: " . ($role == 'admin' ? 'admin_page.php' : 'user_page.php'));
-    exit();
-}
-
-$task = $result->fetch_assoc();
-$task_name = $task['task_name'];
-$task_description = $task['task_description'];
-$list_id = $task['list_id'];
-$priority = $task['priority'];
-$deadline = $task['deadline'];
+$username = $user['name'];
+$email = $user['email'];
 
 // Handle form submission
 if(isset($_POST['submit'])){
-    $task_name = $_POST['task_name'];
-    $task_description = $_POST['task_description'];
-    $list_id = !empty($_POST['list_id']) ? $_POST['list_id'] : NULL;
-    $priority = $_POST['priority'];
-    $deadline = $_POST['deadline'];
-
-    if($role == 'admin') {
-        $stmt = $conn->prepare("UPDATE tbl_tasks SET task_name = ?, task_description = ?, list_id = ?, priority = ?, deadline = ? WHERE task_id = ?");
-        $stmt->bind_param("ssissi", $task_name, $task_description, $list_id, $priority, $deadline, $task_id);
+    $name = $_POST['name'];
+    $email = $_POST['email'];
+    $password_change = isset($_POST['change_password']) && $_POST['change_password'] == '1';
+    
+    // Check if email already exists and doesn't belong to this user
+    $stmt = $conn->prepare("SELECT * FROM users WHERE email = ? AND id != ?");
+    $stmt->bind_param("si", $email, $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if($result->num_rows > 0) {
+        $error = "Email is already registered. Please use a different email.";
     } else {
-        $stmt = $conn->prepare("UPDATE tbl_tasks SET task_name = ?, task_description = ?, list_id = ?, priority = ?, deadline = ? WHERE task_id = ? AND user_id = ?");
-        $stmt->bind_param("ssissii", $task_name, $task_description, $list_id, $priority, $deadline, $task_id, $user_id);
-    }
-
-    if($stmt->execute()) {
-        $_SESSION['update_task'] = "Task updated successfully";
-        header("Location: " . ($role == 'admin' ? 'admin_page.php' : 'user_page.php'));
-        exit();
-    } else {
-        $update_error = "Error updating task";
+        // Verify current password
+        if(!password_verify($_POST['current_password'], $user['password'])) {
+            $error = "Current password is incorrect.";
+        } else {
+            if($password_change && !empty($_POST['new_password'])) {
+                // Update with new password
+                $password = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
+                $stmt = $conn->prepare("UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?");
+                $stmt->bind_param("sssi", $name, $email, $password, $user_id);
+            } else {
+                // Update without changing password
+                $stmt = $conn->prepare("UPDATE users SET name = ?, email = ? WHERE id = ?");
+                $stmt->bind_param("ssi", $name, $email, $user_id);
+            }
+            
+            if($stmt->execute()) {
+                $success = "Profile updated successfully.";
+                // Refresh user data
+                $stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
+                $stmt->bind_param("i", $user_id);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $user = $result->fetch_assoc();
+                $username = $user['name'];
+                $email = $user['email'];
+            } else {
+                $error = "Failed to update profile. Please try again.";
+            }
+        }
     }
 }
+
+// Get user stats
+$stats = [
+    'total' => 0,
+    'pending' => 0,
+    'completed' => 0
+];
+
+// Get total tasks
+$query = "SELECT COUNT(*) as total FROM tbl_tasks WHERE user_id = ?";
+$stmt = $conn->prepare($query);
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$result = $stmt->get_result();
+$stats['total'] = $result->fetch_assoc()['total'];
+
+// Get pending tasks
+$query = "SELECT COUNT(*) as pending FROM tbl_tasks WHERE user_id = ? AND status = 'pending'";
+$stmt = $conn->prepare($query);
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$result = $stmt->get_result();
+$stats['pending'] = $result->fetch_assoc()['pending'];
+
+// Get completed tasks
+$query = "SELECT COUNT(*) as completed FROM tbl_tasks WHERE user_id = ? AND status = 'complited'";
+$stmt = $conn->prepare($query);
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$result = $stmt->get_result();
+$stats['completed'] = $result->fetch_assoc()['completed'];
 ?>
 
 <!DOCTYPE html>
@@ -80,7 +103,7 @@ if(isset($_POST['submit'])){
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Update Task | Task Manager</title>
+    <title>Profile Settings | Task Manager</title>
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts - Poppins -->
@@ -290,10 +313,98 @@ if(isset($_POST['submit'])){
           font-weight: 500;
         }
 
+        .alert-success {
+          background-color: rgba(52, 199, 89, 0.1);
+          color: var(--success);
+          border: 1px solid rgba(52, 199, 89, 0.2);
+        }
+
         .alert-danger {
           background-color: rgba(255, 59, 48, 0.1);
           color: var(--danger);
           border: 1px solid rgba(255, 59, 48, 0.2);
+        }
+
+        /* === PROFILE SECTION === */
+        .profile-container {
+          display: grid;
+          grid-template-columns: 1fr 2fr;
+          gap: 1.5rem;
+        }
+
+        /* === USER CARD === */
+        .user-card {
+          background-color: white;
+          border-radius: var(--radius);
+          box-shadow: var(--shadow);
+          overflow: hidden;
+        }
+
+        .user-card-header {
+          background-color: var(--primary-light);
+          padding: 2rem 1.5rem;
+          text-align: center;
+          border-bottom: 1px solid var(--gray-200);
+        }
+
+        .user-card-avatar {
+          width: 100px;
+          height: 100px;
+          border-radius: 50%;
+          background-color: var(--primary);
+          margin: 0 auto 1rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 2.5rem;
+          font-weight: bold;
+          color: white;
+          text-transform: uppercase;
+        }
+
+        .user-card-name {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: var(--dark);
+          margin-bottom: 0.25rem;
+        }
+
+        .user-card-role {
+          display: inline-block;
+          padding: 0.25rem 0.75rem;
+          border-radius: 999px;
+          font-size: 0.8rem;
+          font-weight: 500;
+          text-transform: uppercase;
+          background-color: var(--primary);
+          color: white;
+        }
+
+        .user-card-body {
+          padding: 1.5rem;
+        }
+
+        .user-stats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 1rem;
+          text-align: center;
+        }
+
+        .user-stat-item {
+          padding: 0.75rem;
+        }
+
+        .user-stat-value {
+          font-size: 1.5rem;
+          font-weight: 600;
+          color: var(--primary);
+          margin-bottom: 0.25rem;
+        }
+
+        .user-stat-label {
+          font-size: 0.85rem;
+          color: var(--gray-600);
         }
 
         /* === FORM CONTAINER === */
@@ -302,8 +413,6 @@ if(isset($_POST['submit'])){
           border-radius: var(--radius);
           box-shadow: var(--shadow);
           overflow: hidden;
-          max-width: 800px;
-          margin: 0 auto;
         }
 
         .form-header {
@@ -357,36 +466,33 @@ if(isset($_POST['submit'])){
           color: var(--gray-500);
         }
 
-        .form-select {
-          width: 100%;
-          padding: 0.75rem 1rem;
-          font-size: 1rem;
-          background-color: white;
-          border: 1px solid var(--gray-300);
-          border-radius: var(--radius);
-          appearance: none;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%236c757d' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
-          background-repeat: no-repeat;
-          background-position: right 1rem center;
-          background-size: 16px 12px;
-          transition: var(--transition);
+        .form-check {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin-bottom: 1rem;
         }
 
-        .form-select:focus {
-          outline: none;
-          border-color: var(--primary);
-          box-shadow: 0 0 0 3px var(--primary-light);
+        .form-check-input {
+          width: 18px;
+          height: 18px;
+          cursor: pointer;
         }
 
-        textarea.form-control {
-          min-height: 120px;
-          resize: vertical;
+        .form-check-label {
+          color: var(--gray-700);
+          cursor: pointer;
         }
 
-        .form-group-row {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 1.5rem;
+        .password-fields {
+          margin-top: 1rem;
+          padding-top: 1rem;
+          border-top: 1px dashed var(--gray-300);
+          display: none;
+        }
+
+        .password-fields.show {
+          display: block;
         }
 
         .form-footer {
@@ -433,24 +539,24 @@ if(isset($_POST['submit'])){
           color: var(--primary);
         }
 
-        /* Task metadata */
-        .task-meta {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
-          font-size: 0.9rem;
+        /* Security info */
+        .security-info {
+          margin-top: 1.5rem;
+          padding-top: 1.5rem;
+          border-top: 1px solid var(--gray-200);
         }
 
-        .task-meta-item {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
+        .security-info-title {
+          font-size: 1rem;
+          font-weight: 600;
+          color: var(--dark);
+          margin-bottom: 0.75rem;
+        }
+
+        .security-info p {
           color: var(--gray-600);
-        }
-
-        .task-meta-item i {
-          color: var(--primary);
+          font-size: 0.9rem;
+          margin-bottom: 0.5rem;
         }
 
         /* Responsive adaptations */
@@ -461,9 +567,8 @@ if(isset($_POST['submit'])){
         }
 
         @media (max-width: 768px) {
-          .form-group-row {
+          .profile-container {
             grid-template-columns: 1fr;
-            gap: 1rem;
           }
           
           .form-footer {
@@ -490,6 +595,10 @@ if(isset($_POST['submit'])){
           
           .form-content {
             padding: 1.5rem;
+          }
+          
+          .user-stats {
+            grid-template-columns: 1fr;
           }
         }
     </style>
@@ -547,7 +656,7 @@ if(isset($_POST['submit'])){
                     
                     <?php if($role == 'admin'): ?>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="manage-users.php">
                             <i class="fas fa-users"></i>
                             Manage Users
                         </a>
@@ -556,7 +665,7 @@ if(isset($_POST['submit'])){
                     
                     <div class="nav-section-title">SETTINGS</div>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="profile.php" class="active">
                             <i class="fas fa-user-gear"></i>
                             Profile Settings
                         </a>
@@ -574,92 +683,126 @@ if(isset($_POST['submit'])){
         <!-- Main Content Area -->
         <main class="main-content">
             <h1 class="page-title">
-                <i class="fas fa-edit"></i>
-                Update Task
+                <i class="fas fa-user-gear"></i>
+                Profile Settings
             </h1>
             
-            <?php if(isset($update_error)): ?>
-            <div class="alert alert-danger">
-                <?php echo $update_error; ?>
+            <?php if(isset($success)): ?>
+            <div class="alert alert-success">
+                <?php echo $success; ?>
             </div>
             <?php endif; ?>
             
-            <div class="form-container">
-                <div class="form-header">
-                    <h2 class="form-title">
-                        <i class="fas fa-clipboard-list"></i>
-                        Edit Task: <?php echo htmlspecialchars($task_name); ?>
-                    </h2>
+            <?php if(isset($error)): ?>
+            <div class="alert alert-danger">
+                <?php echo $error; ?>
+            </div>
+            <?php endif; ?>
+            
+            <div class="profile-container">
+                <!-- User Info Card -->
+                <div class="user-card">
+                    <div class="user-card-header">
+                        <div class="user-card-avatar"><?php echo substr($username, 0, 1); ?></div>
+                        <h2 class="user-card-name"><?php echo $username; ?></h2>
+                        <span class="user-card-role"><?php echo ucfirst($role); ?></span>
+                    </div>
+                    
+                    <div class="user-card-body">
+                        <div class="user-stats">
+                            <div class="user-stat-item">
+                                <div class="user-stat-value"><?php echo $stats['total']; ?></div>
+                                <div class="user-stat-label">Total Tasks</div>
+                            </div>
+                            
+                            <div class="user-stat-item">
+                                <div class="user-stat-value"><?php echo $stats['pending']; ?></div>
+                                <div class="user-stat-label">Pending</div>
+                            </div>
+                            
+                            <div class="user-stat-item">
+                                <div class="user-stat-value"><?php echo $stats['completed']; ?></div>
+                                <div class="user-stat-label">Completed</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
-                <form action="" method="post">
-                    <div class="form-content">
-                        <div class="form-group">
-                            <label for="task_name" class="form-label">Task Name</label>
-                            <input type="text" id="task_name" name="task_name" class="form-control" value="<?php echo htmlspecialchars($task_name); ?>" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="task_description" class="form-label">Task Description</label>
-                            <textarea id="task_description" name="task_description" class="form-control" required><?php echo htmlspecialchars($task_description); ?></textarea>
-                        </div>
-                        
-                        <div class="form-group-row">
+                <!-- Profile Form -->
+                <div class="form-container">
+                    <div class="form-header">
+                        <h2 class="form-title">
+                            <i class="fas fa-pen-to-square"></i>
+                            Edit Profile Information
+                        </h2>
+                    </div>
+                    
+                    <form action="" method="post">
+                        <div class="form-content">
                             <div class="form-group">
-                                <label for="list_id" class="form-label">Select List</label>
-                                <select id="list_id" name="list_id" class="form-select">
-                                    <option value="">None</option>
-                                    <?php 
-                                    // Get available lists
-                                    if($role == 'admin') {
-                                        $listQuery = "SELECT * FROM tbl_lists";
-                                        $stmt = $conn->prepare($listQuery);
-                                    } else {
-                                        $listQuery = "SELECT * FROM tbl_lists WHERE user_id = ? OR user_id IS NULL";
-                                        $stmt = $conn->prepare($listQuery);
-                                        $stmt->bind_param("i", $user_id);
-                                    }
-                                    
-                                    $stmt->execute();
-                                    $result = $stmt->get_result();
-                                    
-                                    while($row = $result->fetch_assoc()) {
-                                        $selected = ($row['list_id'] == $list_id) ? 'selected' : '';
-                                        echo '<option value="' . $row['list_id'] . '" ' . $selected . '>' . $row['list_name'] . '</option>';
-                                    }
-                                    ?>
-                                </select>
+                                <label for="name" class="form-label">Full Name</label>
+                                <input type="text" id="name" name="name" class="form-control" value="<?php echo htmlspecialchars($username); ?>" required>
                             </div>
                             
                             <div class="form-group">
-                                <label for="priority" class="form-label">Priority</label>
-                                <select id="priority" name="priority" class="form-select" required>
-                                    <option value="High" <?php echo ($priority == 'High') ? 'selected' : ''; ?>>High</option>
-                                    <option value="Medium" <?php echo ($priority == 'Medium') ? 'selected' : ''; ?>>Medium</option>
-                                    <option value="Low" <?php echo ($priority == 'Low') ? 'selected' : ''; ?>>Low</option>
-                                </select>
+                                <label for="email" class="form-label">Email Address</label>
+                                <input type="email" id="email" name="email" class="form-control" value="<?php echo htmlspecialchars($email); ?>" required>
+                            </div>
+                            
+                            <div class="security-info">
+                                <h3 class="security-info-title">Security Information</h3>
+                                
+                                <div class="form-group">
+                                    <label for="current_password" class="form-label">Current Password</label>
+                                    <input type="password" id="current_password" name="current_password" class="form-control" placeholder="Enter your current password" required>
+                                </div>
+                                
+                                <div class="form-check">
+                                    <input type="checkbox" id="change_password" name="change_password" value="1" class="form-check-input">
+                                    <label for="change_password" class="form-check-label">I want to change my password</label>
+                                </div>
+                                
+                                <div class="password-fields" id="password_fields">
+                                    <div class="form-group">
+                                        <label for="new_password" class="form-label">New Password</label>
+                                        <input type="password" id="new_password" name="new_password" class="form-control" placeholder="Enter new password">
+                                    </div>
+                                </div>
+                                
+                                <p>For security reasons, you need to enter your current password to save any changes to your profile.</p>
                             </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label for="deadline" class="form-label">Deadline</label>
-                            <input type="date" id="deadline" name="deadline" class="form-control" value="<?php echo $deadline; ?>" required>
+                        <div class="form-footer">
+                            <a href="<?php echo $role === 'admin' ? 'admin_page.php' : 'user_page.php'; ?>" class="btn btn-outline">
+                                <i class="fas fa-times"></i>
+                                Cancel
+                            </a>
+                            <button type="submit" name="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i>
+                                Save Changes
+                            </button>
                         </div>
-                    </div>
-                    
-                    <div class="form-footer">
-                        <a href="<?php echo $role === 'admin' ? 'admin_page.php' : 'user_page.php'; ?>" class="btn btn-outline">
-                            <i class="fas fa-times"></i>
-                            Cancel
-                        </a>
-                        <button type="submit" name="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i>
-                            Update Task
-                        </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
         </main>
     </div>
+
+    <script>
+        // Toggle password fields
+        document.addEventListener('DOMContentLoaded', function() {
+            const changePasswordCheckbox = document.getElementById('change_password');
+            const passwordFields = document.getElementById('password_fields');
+            
+            changePasswordCheckbox.addEventListener('change', function() {
+                if(this.checked) {
+                    passwordFields.classList.add('show');
+                } else {
+                    passwordFields.classList.remove('show');
+                }
+            });
+        });
+    </script>
 </body>
 </html>

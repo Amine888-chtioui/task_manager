@@ -534,23 +534,11 @@ $completed_count = $result->fetch_assoc()['total'];
                             Dashboard
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a href="#">
-                            <i class="fas fa-list-check"></i>
-                            All Tasks
-                        </a>
-                    </li>
                     <?php else: ?>
                     <li class="nav-item">
                         <a href="user_page.php">
                             <i class="fas fa-home"></i>
                             Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="#">
-                            <i class="fas fa-list-check"></i>
-                            My Tasks
                         </a>
                     </li>
                     <?php endif; ?>
@@ -570,7 +558,7 @@ $completed_count = $result->fetch_assoc()['total'];
                     
                     <?php if($role == 'admin'): ?>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="manage-users.php">
                             <i class="fas fa-users"></i>
                             Manage Users
                         </a>
@@ -579,7 +567,7 @@ $completed_count = $result->fetch_assoc()['total'];
                     
                     <div class="nav-section-title">SETTINGS</div>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="profile.php">
                             <i class="fas fa-user-gear"></i>
                             Profile Settings
                         </a>

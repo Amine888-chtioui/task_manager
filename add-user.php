@@ -1,43 +1,52 @@
 <?php
-require_once 'config.php';
-    
-if (!isset($_SESSION['user_id'])) {
+require_once('config.php');
+
+// Check if user is admin
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     header("Location: login.php");
     exit();
 }
 
 $user_id = $_SESSION['user_id'];
-$role = $_SESSION['role'];
 
-// Get user name from database
+// Get admin name from database
 $stmt = $conn->prepare("SELECT name FROM users WHERE id = ?");
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $result = $stmt->get_result();
 $user = $result->fetch_assoc();
-$username = $user['name'] ?? ($role === 'admin' ? 'Admin' : 'User');
+$username = $user['name'] ?? 'Admin';
 
 // Handle form submission
-if (isset($_POST['submit'])) {
-    $list_name = $_POST['list_name'];
-    $list_description = $_POST['list_description'];
-
-    // Pour admin, la liste est publique (user_id = NULL)
-    $user_id_insert = ($role == "admin") ? NULL : $user_id;
-
-    // Préparer et exécuter la requête d'insertion avec prepared statements
-    $stmt = $conn->prepare("INSERT INTO tbl_lists (user_id, list_name, list_description) VALUES (?, ?, ?)");
-    $stmt->bind_param("iss", $user_id_insert, $list_name, $list_description);
-
-    if ($stmt->execute()) {
-        $_SESSION['insert'] = "List created successfully";
+if(isset($_POST['submit'])) {
+    $name = $_POST['name'];
+    $email = $_POST['email'];
+    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+    $role = $_POST['role'];
+    
+    // Check if email already exists
+    $query = "SELECT * FROM users WHERE email = ?";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if($result->num_rows > 0) {
+        $error = "Email is already registered. Please use a different email.";
     } else {
-        $_SESSION['error-insert'] = "Error creating list";
+        // Insert new user
+        $query = "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)";
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("ssss", $name, $email, $password, $role);
+        
+        if($stmt->execute()) {
+            $_SESSION['user_success'] = "User added successfully";
+            header("Location: manage-users.php");
+            exit();
+        } else {
+            $error = "Failed to add user. Please try again.";
+        }
     }
-
-    $stmt->close();
-    header("Location: manage-list.php");
-    exit();
 }
 ?>
 
@@ -46,16 +55,16 @@ if (isset($_POST['submit'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add New List | Task Manager</title>
+    <title>Add New User | Task Manager</title>
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts - Poppins -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-          --primary: <?php echo $role === 'admin' ? '#8C36D4' : '#5468FF'; ?>;
-          --primary-dark: <?php echo $role === 'admin' ? '#7929C4' : '#4054EB'; ?>;
-          --primary-light: <?php echo $role === 'admin' ? '#F0E5FA' : '#E6E9FF'; ?>;
+          --primary: #8C36D4;
+          --primary-dark: #7929C4;
+          --primary-light: #F0E5FA;
           --success: #34C759;
           --danger: #FF3B30;
           --warning: #FFCC00;
@@ -248,6 +257,20 @@ if (isset($_POST['submit'])) {
           color: var(--primary);
         }
 
+        /* Alert message styling */
+        .alert {
+          padding: 1rem;
+          border-radius: var(--radius);
+          margin-bottom: 1.5rem;
+          font-weight: 500;
+        }
+
+        .alert-danger {
+          background-color: rgba(255, 59, 48, 0.1);
+          color: var(--danger);
+          border: 1px solid rgba(255, 59, 48, 0.2);
+        }
+
         /* === FORM CONTAINER === */
         .form-container {
           background-color: white;
@@ -309,9 +332,25 @@ if (isset($_POST['submit'])) {
           color: var(--gray-500);
         }
 
-        textarea.form-control {
-          min-height: 120px;
-          resize: vertical;
+        .form-select {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          font-size: 1rem;
+          background-color: white;
+          border: 1px solid var(--gray-300);
+          border-radius: var(--radius);
+          appearance: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%236c757d' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 1rem center;
+          background-size: 16px 12px;
+          transition: var(--transition);
+        }
+
+        .form-select:focus {
+          outline: none;
+          border-color: var(--primary);
+          box-shadow: 0 0 0 3px var(--primary-light);
         }
 
         .form-footer {
@@ -356,23 +395,6 @@ if (isset($_POST['submit'])) {
         .btn-outline:hover {
           border-color: var(--primary);
           color: var(--primary);
-        }
-
-        /* Admin note */
-        .admin-note {
-          background-color: var(--primary-light);
-          border-radius: var(--radius);
-          padding: 1rem;
-          margin-bottom: 1.5rem;
-          font-size: 0.9rem;
-          color: var(--primary-dark);
-          display: flex;
-          align-items: flex-start;
-          gap: 0.75rem;
-        }
-
-        .admin-note i {
-          margin-top: 0.2rem;
         }
 
         /* Responsive adaptations */
@@ -422,7 +444,7 @@ if (isset($_POST['submit'])) {
             <div class="user-avatar"><?php echo substr($username, 0, 1); ?></div>
             <div class="user-info">
                 <div class="user-name"><?php echo $username; ?></div>
-                <div class="user-role"><?php echo ucfirst($role); ?></div>
+                <div class="user-role">Admin</div>
             </div>
         </div>
     </header>
@@ -433,22 +455,12 @@ if (isset($_POST['submit'])) {
         <aside class="sidebar">
             <nav>
                 <ul class="nav-menu">
-                    <?php if($role == 'admin'): ?>
                     <li class="nav-item">
                         <a href="admin_page.php">
                             <i class="fas fa-home"></i>
                             Dashboard
                         </a>
                     </li>
-                    <?php else: ?>
-                    <li class="nav-item">
-                        <a href="user_page.php">
-                            <i class="fas fa-home"></i>
-                            Dashboard
-                        </a>
-                    </li>
-                    <?php endif; ?>
-                    
                     <li class="nav-item">
                         <a href="done.php">
                             <i class="fas fa-check-circle"></i>
@@ -456,20 +468,17 @@ if (isset($_POST['submit'])) {
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a href="manage-list.php" class="active">
+                        <a href="manage-list.php">
                             <i class="fas fa-folder"></i>
                             Manage Lists
                         </a>
                     </li>
-                    
-                    <?php if($role == 'admin'): ?>
                     <li class="nav-item">
-                        <a href="#">
+                        <a href="manage-users.php" class="active">
                             <i class="fas fa-users"></i>
                             Manage Users
                         </a>
                     </li>
-                    <?php endif; ?>
                     
                     <div class="nav-section-title">SETTINGS</div>
                     <li class="nav-item">
@@ -491,48 +500,58 @@ if (isset($_POST['submit'])) {
         <!-- Main Content Area -->
         <main class="main-content">
             <h1 class="page-title">
-                <i class="fas fa-folder-plus"></i>
-                Add New List
+                <i class="fas fa-user-plus"></i>
+                Add New User
             </h1>
+            
+            <?php if(isset($error)): ?>
+            <div class="alert alert-danger">
+                <?php echo $error; ?>
+            </div>
+            <?php endif; ?>
             
             <div class="form-container">
                 <div class="form-header">
                     <h2 class="form-title">
-                        <i class="fas fa-folder"></i>
-                        List Details
+                        <i class="fas fa-user"></i>
+                        User Details
                     </h2>
                 </div>
                 
                 <form action="" method="post">
                     <div class="form-content">
-                        <?php if($role == 'admin'): ?>
-                        <div class="admin-note">
-                            <i class="fas fa-info-circle"></i>
-                            <div>
-                                <strong>Admin Note:</strong> Lists created by an admin are public and visible to all users.
-                            </div>
-                        </div>
-                        <?php endif; ?>
-                        
                         <div class="form-group">
-                            <label for="list_name" class="form-label">List Name</label>
-                            <input type="text" id="list_name" name="list_name" class="form-control" placeholder="Enter list name" required>
+                            <label for="name" class="form-label">Full Name</label>
+                            <input type="text" id="name" name="name" class="form-control" placeholder="Enter user's full name" required>
                         </div>
                         
                         <div class="form-group">
-                            <label for="list_description" class="form-label">List Description</label>
-                            <textarea id="list_description" name="list_description" class="form-control" placeholder="Enter list description" required></textarea>
+                            <label for="email" class="form-label">Email Address</label>
+                            <input type="email" id="email" name="email" class="form-control" placeholder="Enter user's email address" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="password" class="form-label">Password</label>
+                            <input type="password" id="password" name="password" class="form-control" placeholder="Create a password" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="role" class="form-label">User Role</label>
+                            <select id="role" name="role" class="form-select" required>
+                                <option value="user" selected>Regular User</option>
+                                <option value="admin">Administrator</option>
+                            </select>
                         </div>
                     </div>
                     
                     <div class="form-footer">
-                        <a href="manage-list.php" class="btn btn-outline">
+                        <a href="manage-users.php" class="btn btn-outline">
                             <i class="fas fa-times"></i>
                             Cancel
                         </a>
                         <button type="submit" name="submit" class="btn btn-primary">
-                            <i class="fas fa-plus"></i>
-                            Create List
+                            <i class="fas fa-user-plus"></i>
+                            Add User
                         </button>
                     </div>
                 </form>

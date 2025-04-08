@@ -482,23 +482,11 @@ if(isset($_POST['submit'])){
                             Dashboard
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a href="#">
-                            <i class="fas fa-list-check"></i>
-                            All Tasks
-                        </a>
-                    </li>
                     <?php else: ?>
                     <li class="nav-item">
                         <a href="user_page.php">
                             <i class="fas fa-home"></i>
                             Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a href="#">
-                            <i class="fas fa-list-check"></i>
-                            My Tasks
                         </a>
                     </li>
                     <?php endif; ?>
